@@ -43,185 +43,277 @@
         let map, marker, watchId;
         let lastUpdateTime = 0;
         const UPDATE_INTERVAL = 10000; // 10 seconds in milliseconds
+        const PERMISSION_RETRY_INTERVAL = 30000; // 30 seconds in milliseconds
+        let permissionRetryTimer = null;
 
         document.addEventListener('DOMContentLoaded', function() {
+            // Initialize map first
+            initializeMap();
+            // Then start location tracking
+            initializeLocationTracking();
+        });
+
+        function initializeMap() {
+            // Initialize map with default coordinates (can be any coordinates)
+            map = L.map('map').setView([0, 0], 2);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '© OpenStreetMap'
+            }).addTo(map);
+        }
+
+        function initializeLocationTracking() {
             if (navigator.geolocation) {
-                const options = {
+                requestLocationPermission();
+            } else {
+                showLocationError("Geolocation is not supported by this browser.");
+            }
+        }
+
+        function requestLocationPermission() {
+            const options = {
+                enableHighAccuracy: true,
+                timeout: 30000, // Increased timeout to 30 seconds
+                maximumAge: 0
+            };
+            
+            navigator.geolocation.getCurrentPosition(
+                showPosition,
+                handleLocationError,
+                options
+            );
+        }
+
+        function showPosition(position) {
+            console.log("Received coordinates:", position.coords);
+            const lat = position.coords.latitude;
+            const lon = position.coords.longitude;
+            const accuracy = Math.min(position.coords.accuracy, 20);
+
+            // Update map view and marker
+            map.setView([lat, lon], 18);
+            
+            if (!marker) {
+                marker = L.marker([lat, lon]).addTo(map);
+                // Add accuracy circle with limited size
+                L.circle([lat, lon], {
+                    radius: accuracy,
+                    color: '#3388ff',
+                    fillColor: '#3388ff',
+                    fillOpacity: 0.2,
+                    weight: 2
+                }).addTo(map);
+            } else {
+                marker.setLatLng([lat, lon]);
+            }
+
+            marker.bindPopup(`You are here (within ${Math.round(accuracy)} meters)`).openPopup();
+
+            // Update backend with new coordinates
+            updateBackend(lat, lon);
+
+            // Start watching position with high accuracy
+            watchId = navigator.geolocation.watchPosition(
+                updatePosition,
+                handleLocationError,
+                {
                     enableHighAccuracy: true,
                     timeout: 5000,
                     maximumAge: 0
-                };
-                
-                navigator.geolocation.getCurrentPosition(
-                    showPosition,
-                    handleLocationError,
-                    options
-                );
-            } else {
-                alert("Geolocation is not supported by this browser.");
+                }
+            );
+
+            // Start update timer
+            startUpdateTimer();
+
+            // Clear any existing permission retry timer
+            if (permissionRetryTimer) {
+                clearTimeout(permissionRetryTimer);
+                permissionRetryTimer = null;
             }
 
-            function showPosition(position) {
-                console.log("Received coordinates:", position.coords);
+            // Remove any error message if present
+            const errorDiv = document.querySelector('.location-error');
+            if (errorDiv) {
+                errorDiv.remove();
+            }
+        }
+
+        function updatePosition(position) {
+            const currentTime = Date.now();
+            if (currentTime - lastUpdateTime >= UPDATE_INTERVAL) {
+                console.log("Updated coordinates:", position.coords);
                 const lat = position.coords.latitude;
                 const lon = position.coords.longitude;
                 const accuracy = Math.min(position.coords.accuracy, 20);
 
-                // Initialize map if not already initialized
-                if (!map) {
-                    map = L.map('map').setView([lat, lon], 18);
-                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                        maxZoom: 19,
-                        attribution: '© OpenStreetMap'
-                    }).addTo(map);
-
-                    marker = L.marker([lat, lon]).addTo(map);
+                if (map && marker) {
+                    marker.setLatLng([lat, lon]);
+                    marker.bindPopup(`You are here (within ${Math.round(accuracy)} meters)`).openPopup();
+                    map.setView([lat, lon]);
                     
-                    // Add accuracy circle with limited size
-                    L.circle([lat, lon], {
-                        radius: accuracy,
-                        color: '#3388ff',
-                        fillColor: '#3388ff',
-                        fillOpacity: 0.2,
-                        weight: 2
-                    }).addTo(map);
-                }
-
-                marker.setLatLng([lat, lon]);
-                marker.bindPopup(`You are here (within ${Math.round(accuracy)} meters)`).openPopup();
-                map.setView([lat, lon]);
-
-                // Update backend with new coordinates
-                updateBackend(lat, lon);
-
-                // Start watching position with high accuracy
-                watchId = navigator.geolocation.watchPosition(
-                    updatePosition,
-                    handleLocationError,
-                    {
-                        enableHighAccuracy: true,
-                        timeout: 5000,
-                        maximumAge: 0
-                    }
-                );
-
-                // Start update timer
-                startUpdateTimer();
-            }
-
-            function updatePosition(position) {
-                const currentTime = Date.now();
-                if (currentTime - lastUpdateTime >= UPDATE_INTERVAL) {
-                    console.log("Updated coordinates:", position.coords);
-                    const lat = position.coords.latitude;
-                    const lon = position.coords.longitude;
-                    const accuracy = Math.min(position.coords.accuracy, 20);
-
-                    if (map && marker) {
-                        marker.setLatLng([lat, lon]);
-                        marker.bindPopup(`You are here (within ${Math.round(accuracy)} meters)`).openPopup();
-                        map.setView([lat, lon]);
-                        
-                        // Update backend with new coordinates
-                        updateBackend(lat, lon);
-                        lastUpdateTime = currentTime;
-                    }
+                    // Update backend with new coordinates
+                    updateBackend(lat, lon);
+                    lastUpdateTime = currentTime;
                 }
             }
+        }
 
-            function startUpdateTimer() {
-                const timerElement = document.createElement('div');
-                timerElement.id = 'updateTimer';
-                timerElement.style.position = 'absolute';
-                timerElement.style.bottom = '10px';
-                timerElement.style.right = '10px';
-                timerElement.style.background = 'rgba(0, 0, 0, 0.7)';
-                timerElement.style.color = 'white';
-                timerElement.style.padding = '5px 10px';
-                timerElement.style.borderRadius = '5px';
-                timerElement.style.zIndex = '1000';
-                document.getElementById('map').appendChild(timerElement);
+        function startUpdateTimer() {
+            // Remove existing timer if present
+            const existingTimer = document.getElementById('updateTimer');
+            if (existingTimer) {
+                existingTimer.remove();
+            }
 
-                let secondsLeft = UPDATE_INTERVAL / 1000;
+            const timerElement = document.createElement('div');
+            timerElement.id = 'updateTimer';
+            timerElement.style.position = 'absolute';
+            timerElement.style.bottom = '10px';
+            timerElement.style.right = '10px';
+            timerElement.style.background = 'rgba(0, 0, 0, 0.7)';
+            timerElement.style.color = 'white';
+            timerElement.style.padding = '5px 10px';
+            timerElement.style.borderRadius = '5px';
+            timerElement.style.zIndex = '1000';
+            document.getElementById('map').appendChild(timerElement);
+
+            let secondsLeft = UPDATE_INTERVAL / 1000;
+            timerElement.textContent = `Next update in: ${secondsLeft}s`;
+
+            const timerInterval = setInterval(() => {
+                secondsLeft--;
                 timerElement.textContent = `Next update in: ${secondsLeft}s`;
-
-                const timerInterval = setInterval(() => {
-                    secondsLeft--;
-                    timerElement.textContent = `Next update in: ${secondsLeft}s`;
-                    
-                    if (secondsLeft <= 0) {
-                        secondsLeft = UPDATE_INTERVAL / 1000;
-                    }
-                }, 1000);
-            }
-
-            function handleLocationError(error) {
-                let errorMessage;
-                switch(error.code) {
-                    case error.PERMISSION_DENIED:
-                        errorMessage = "Location access denied by user.";
-                        break;
-                    case error.POSITION_UNAVAILABLE:
-                        errorMessage = "Location information unavailable.";
-                        break;
-                    case error.TIMEOUT:
-                        errorMessage = "Location request timed out.";
-                        break;
-                    default:
-                        errorMessage = "An unknown error occurred.";
+                
+                if (secondsLeft <= 0) {
+                    secondsLeft = UPDATE_INTERVAL / 1000;
                 }
-                console.error("Geolocation error:", errorMessage);
-                alert(errorMessage);
+            }, 1000);
+        }
+
+        function handleLocationError(error) {
+            let errorMessage;
+            switch(error.code) {
+                case error.PERMISSION_DENIED:
+                    errorMessage = "Location access denied by user.";
+                    // Schedule a retry for permission
+                    if (!permissionRetryTimer) {
+                        permissionRetryTimer = setTimeout(() => {
+                            requestLocationPermission();
+                        }, PERMISSION_RETRY_INTERVAL);
+                    }
+                    break;
+                case error.POSITION_UNAVAILABLE:
+                    errorMessage = "Location information unavailable. Please check your device's location services.";
+                    // Retry after a short delay
+                    setTimeout(() => {
+                        requestLocationPermission();
+                    }, 5000);
+                    break;
+                case error.TIMEOUT:
+                    errorMessage = "Location request timed out. Please check your internet connection and try again.";
+                    // Retry immediately
+                    requestLocationPermission();
+                    break;
+                default:
+                    errorMessage = "An unknown error occurred. Please try again.";
+                    // Retry after a short delay
+                    setTimeout(() => {
+                        requestLocationPermission();
+                    }, 5000);
+            }
+            console.error("Geolocation error:", errorMessage);
+            showLocationError(errorMessage);
+        }
+
+        function showLocationError(message) {
+            // Remove existing error message if present
+            const existingError = document.querySelector('.location-error');
+            if (existingError) {
+                existingError.remove();
             }
 
-            function updateBackend(lat, lon) {
-                fetch('/api/me/address', {
-                    method: 'PUT',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': 'Bearer ' + localStorage.getItem('token')
-                    },
-                    body: JSON.stringify({
-                        latitude: lat,
-                        longitude: lon,
-                        street: '',  // Optional fields
-                        city: '',
-                        state: '',
-                        country: '',
-                        postal_code: ''
-                    })
+            const mapContainer = document.getElementById('map');
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'location-error';
+            errorDiv.style.position = 'absolute';
+            errorDiv.style.top = '50%';
+            errorDiv.style.left = '50%';
+            errorDiv.style.transform = 'translate(-50%, -50%)';
+            errorDiv.style.background = 'rgba(0, 0, 0, 0.8)';
+            errorDiv.style.color = 'white';
+            errorDiv.style.padding = '20px';
+            errorDiv.style.borderRadius = '8px';
+            errorDiv.style.textAlign = 'center';
+            errorDiv.style.zIndex = '1000';
+            errorDiv.style.maxWidth = '80%';
+            errorDiv.style.wordWrap = 'break-word';
+            errorDiv.innerHTML = `
+                <p style="margin-bottom: 15px;">${message}</p>
+                <button onclick="requestLocationPermission()" style="
+                    background: #4CAF50;
+                    color: white;
+                    border: none;
+                    padding: 10px 20px;
+                    margin-top: 10px;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    font-size: 14px;
+                ">Retry Now</button>
+            `;
+            mapContainer.appendChild(errorDiv);
+        }
+
+        function updateBackend(lat, lon) {
+            fetch('/api/me/address', {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + localStorage.getItem('token')
+                },
+                body: JSON.stringify({
+                    latitude: lat,
+                    longitude: lon,
+                    street: '',  // Optional fields
+                    city: '',
+                    state: '',
+                    country: '',
+                    postal_code: ''
                 })
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error('Failed to update location');
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Failed to update location');
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('Location updated successfully:', data);
+                // Update the address display in user details
+                const userDetails = document.getElementById('userDetails');
+                if (userDetails) {
+                    const addressElement = userDetails.querySelector('p:nth-child(4)');
+                    if (addressElement) {
+                        const address = data.address;
+                        const locationText = address ? 
+                            `Lat: ${address.latitude.toFixed(6)}, Lon: ${address.longitude.toFixed(6)}` : 
+                            'Location updated';
+                        addressElement.innerHTML = `<i class="fas fa-map-marker-alt"></i> <strong>Location:</strong> ${locationText}`;
                     }
-                    return response.json();
-                })
-                .then(data => {
-                    console.log('Location updated successfully:', data);
-                    // Update the address display in user details
-                    const userDetails = document.getElementById('userDetails');
-                    if (userDetails) {
-                        const addressElement = userDetails.querySelector('p:nth-child(4)');
-                        if (addressElement) {
-                            const address = data.address;
-                            const locationText = address ? 
-                                `Lat: ${address.latitude.toFixed(6)}, Lon: ${address.longitude.toFixed(6)}` : 
-                                'Location updated';
-                            addressElement.innerHTML = `<i class="fas fa-map-marker-alt"></i> <strong>Location:</strong> ${locationText}`;
-                        }
-                    }
-                })
-                .catch(error => {
-                    console.error('Error updating location:', error);
-                });
-            }
-        });
+                }
+            })
+            .catch(error => {
+                console.error('Error updating location:', error);
+            });
+        }
 
         // Clean up watchPosition when leaving the page
         window.addEventListener('beforeunload', function() {
             if (watchId) {
                 navigator.geolocation.clearWatch(watchId);
+            }
+            if (permissionRetryTimer) {
+                clearTimeout(permissionRetryTimer);
             }
         });
     </script>
