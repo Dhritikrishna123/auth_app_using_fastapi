@@ -161,7 +161,7 @@ async function fetchUserInfo() {
         if (response.ok) {
             const userData = JSON.parse(responseText);
             console.log('User data received:', userData);
-            displayUserInfo(userData);
+            displayUserDetails(userData);
         } else if (response.status === 401) {
             console.error('Token invalid or expired');
             localStorage.removeItem('token');
@@ -182,17 +182,78 @@ async function fetchUserInfo() {
 }
 
 // Display user information
-function displayUserInfo(userData) {
+function displayUserDetails(user) {
     const userDetails = document.getElementById('userDetails');
-    if (userDetails) {
-        userDetails.innerHTML = `
-            <p><strong>Name:</strong> ${userData.name}</p>
-            <p><strong>Email:</strong> ${userData.email}</p>
-            <p><strong>Phone:</strong> ${userData.phone_number}</p>
-            <p><strong>License Plate:</strong> ${userData.license_plate_number}</p>
-            <p><strong>Address:</strong> ${userData.address}</p>
-            <p><strong>Email Verified:</strong> ${userData.email_verified ? 'Yes' : 'No'}</p>
-            <p><strong>Phone Verified:</strong> ${userData.phone_verified ? 'Yes' : 'No'}</p>
-        `;
+    const userName = document.getElementById('userName');
+    
+    userName.textContent = user.name || 'User';
+    
+    if (user.profile_pic_url) {
+        document.getElementById('profilePic').src = user.profile_pic_url;
     }
-} 
+
+    // Format the date
+    const createdDate = new Date(user.created_at);
+    const formattedDate = createdDate.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+    });
+
+    userDetails.innerHTML = `
+        <p><i class="fas fa-envelope"></i> <strong>Email:</strong> ${user.email}</p>
+        <p><i class="fas fa-phone"></i> <strong>Phone:</strong> ${user.phone_number || 'Not provided'}</p>
+        <p><i class="fas fa-car"></i> <strong>License Plate:</strong> ${user.license_plate_number || 'Not provided'}</p>
+        <p><i class="fas fa-map-marker-alt"></i> <strong>Address:</strong> ${user.address ? `${user.address.street}, ${user.address.city}` : 'Not provided'}</p>
+        <p><i class="fas fa-calendar"></i> <strong>Member since:</strong> ${formattedDate}</p>
+        <p><i class="fas fa-check-circle"></i> <strong>Email Verified:</strong> ${user.email_verified ? 'Yes' : 'No'}</p>
+        <p><i class="fas fa-check-circle"></i> <strong>Phone Verified:</strong> ${user.phone_verified ? 'Yes' : 'No'}</p>
+        <p><i class="fas fa-user"></i> <strong>Account Status:</strong> ${user.is_active ? 'Active' : 'Inactive'}</p>
+    `;
+}
+
+// Add this function to handle profile picture changes
+async function handleProfilePictureChange(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('profile_picture', file);
+
+    try {
+        const response = await fetch('/api/me/profile-picture', {
+            method: 'PUT',
+            headers: {
+                'Authorization': 'Bearer ' + localStorage.getItem('token')
+            },
+            body: formData
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            document.getElementById('profilePic').src = data.profile_picture_url;
+        } else {
+            console.error('Failed to update profile picture');
+        }
+    } catch (error) {
+        console.error('Error:', error);
+    }
+}
+
+// Add event listeners for profile picture
+document.addEventListener('DOMContentLoaded', function() {
+    const changePicBtn = document.getElementById('changePicBtn');
+    if (changePicBtn) {
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.accept = 'image/*';
+        fileInput.style.display = 'none';
+        document.body.appendChild(fileInput);
+
+        changePicBtn.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        fileInput.addEventListener('change', handleProfilePictureChange);
+    }
+}); 

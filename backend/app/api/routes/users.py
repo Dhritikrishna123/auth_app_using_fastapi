@@ -28,34 +28,41 @@ async def update_address(
     address_data: AddressUpdate,
     current_user: UserInDB = Depends(get_current_active_user)
 ):
-    updated_user = await update_user_address(
-        str(current_user.id),
-        latitude=address_data.latitude,
-        longitude=address_data.longitude,
-        street=address_data.street,
-        city=address_data.city,
-        state=address_data.state,
-        country=address_data.country,
-        postal_code=address_data.postal_code
-    )
-    
-    if not updated_user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+    try:
+        updated_user = await update_user_address(
+            str(current_user.id),
+            latitude=address_data.latitude,
+            longitude=address_data.longitude,
+            street=address_data.street,
+            city=address_data.city,
+            state=address_data.state,
+            country=address_data.country,
+            postal_code=address_data.postal_code
         )
-    
-    return UserResponse(
-        id=str(updated_user.id),
-        name=updated_user.name,
-        email=updated_user.email,
-        phone_number=updated_user.phone_number,
-        license_plate_number=updated_user.license_plate_number,
-        address=updated_user.address,
-        profile_pic_url=updated_user.profile_pic_url,
-        email_verified=updated_user.email_verified,
-        phone_verified=updated_user.phone_verified
-    )
+        
+        if not updated_user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        return UserResponse(
+            id=str(updated_user.id),
+            name=updated_user.name,
+            email=updated_user.email,
+            phone_number=updated_user.phone_number,
+            license_plate_number=updated_user.license_plate_number,
+            address=updated_user.address,
+            profile_pic_url=updated_user.profile_pic_url,
+            email_verified=updated_user.email_verified,
+            phone_verified=updated_user.phone_verified
+        )
+    except Exception as e:
+        print(f"Error in update_address: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update address"
+        )
 
 @router.post("/me/profile-picture", response_model=UserResponse)
 async def upload_profile_picture(
