@@ -75,10 +75,17 @@ function initializeRegisterForm() {
                 password: formData.get('password'),
                 phone_number: formData.get('phone_number'),
                 license_plate_number: formData.get('license_plate_number'),
-                address: formData.get('address'),
+                address: {
+                    street: formData.get('address'),
+                    city: '',
+                    state: '',
+                    country: '',
+                    postal_code: ''
+                }
             };
 
             try {
+                console.log('Attempting registration with:', userData);
                 const response = await fetch(`${API_BASE_URL}/auth/register`, {
                     method: 'POST',
                     headers: {
@@ -88,16 +95,19 @@ function initializeRegisterForm() {
                 });
 
                 const data = await response.json();
+                console.log('Registration response:', data);
 
                 if (response.ok) {
                     alert('Registration successful! Please login.');
                     window.location.href = 'login.html';
                 } else {
-                    alert(data.detail || 'Registration failed');
+                    const errorMessage = data.detail || 'Registration failed';
+                    console.error('Registration failed:', errorMessage);
+                    alert(errorMessage);
                 }
             } catch (error) {
-                alert('An error occurred during registration');
                 console.error('Registration error:', error);
+                alert('An error occurred during registration');
             }
         });
     }

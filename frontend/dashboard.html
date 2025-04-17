@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard</title>
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 </head>
 <body>
     <div class="container">
@@ -21,6 +23,122 @@
             </div>
         </div>
     </div>
+    <div id="map" style="height: 400px;"></div>
     <script src="auth.js"></script>
+    <script>
+        let map, marker;
+        document.addEventListener('DOMContentLoaded', function() {
+            if (navigator.geolocation) {
+                const options = {
+                    enableHighAccuracy: true,
+                    timeout: 5000,
+                    maximumAge: 0
+                };
+                
+                navigator.geolocation.getCurrentPosition(
+                    showPosition,
+                    handleLocationError,
+                    options
+                );
+            } else {
+                alert("Geolocation is not supported by this browser.");
+            }
+
+            function showPosition(position) {
+                console.log("Received coordinates:", position.coords);
+                const lat = position.coords.latitude;
+                const lon = position.coords.longitude;
+                const accuracy = position.coords.accuracy;
+
+                // Initialize map if not already initialized
+                if (!map) {
+                    map = L.map('map').setView([lat, lon], 15);
+                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                        maxZoom: 19,
+                        attribution: '© OpenStreetMap'
+                    }).addTo(map);
+
+                    marker = L.marker([lat, lon]).addTo(map);
+                    
+                    // Add accuracy circle
+                    L.circle([lat, lon], {
+                        radius: accuracy,
+                        color: 'blue',
+                        fillColor: '#3388ff',
+                        fillOpacity: 0.1
+                    }).addTo(map);
+                }
+
+                marker.setLatLng([lat, lon]);
+                marker.bindPopup(`You are here (within ${Math.round(accuracy)} meters)`).openPopup();
+                map.setView([lat, lon]);
+
+                // Update backend
+                updateBackend(lat, lon);
+
+                // Start watching position with high accuracy
+                navigator.geolocation.watchPosition(
+                    updatePosition,
+                    handleLocationError,
+                    options
+                );
+            }
+
+            function updatePosition(position) {
+                console.log("Updated coordinates:", position.coords);
+                const lat = position.coords.latitude;
+                const lon = position.coords.longitude;
+                const accuracy = position.coords.accuracy;
+
+                if (map && marker) {
+                    marker.setLatLng([lat, lon]);
+                    marker.bindPopup(`You are here (within ${Math.round(accuracy)} meters)`).openPopup();
+                    map.setView([lat, lon]);
+                    updateBackend(lat, lon);
+                }
+            }
+
+            function handleLocationError(error) {
+                let errorMessage;
+                switch(error.code) {
+                    case error.PERMISSION_DENIED:
+                        errorMessage = "Location access denied by user.";
+                        break;
+                    case error.POSITION_UNAVAILABLE:
+                        errorMessage = "Location information unavailable.";
+                        break;
+                    case error.TIMEOUT:
+                        errorMessage = "Location request timed out.";
+                        break;
+                    default:
+                        errorMessage = "An unknown error occurred.";
+                }
+                console.error("Geolocation error:", errorMessage);
+                alert(errorMessage);
+            }
+
+            function updateBackend(lat, lon) {
+                fetch('/api/me/address', {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + localStorage.getItem('token')
+                    },
+                    body: JSON.stringify({
+                        address: {
+                            latitude: lat,
+                            longitude: lon
+                        }
+                    })
+                }).then(response => {
+                    if (!response.ok) {
+                        console.error('Failed to update location');
+                    }
+                }).catch(error => {
+                    console.error('Error:', error);
+                });
+            }
+        });
+    </script>
 </body>
 </html> 
