@@ -207,9 +207,88 @@ function displayUserDetails(user) {
         <p><i class="fas fa-map-marker-alt"></i> <strong>Address:</strong> ${user.address ? `${user.address.street}, ${user.address.city}` : 'Not provided'}</p>
         <p><i class="fas fa-calendar"></i> <strong>Member since:</strong> ${formattedDate}</p>
         <p><i class="fas fa-check-circle"></i> <strong>Email Verified:</strong> ${user.email_verified ? 'Yes' : 'No'}</p>
+        ${!user.email_verified ? '<button id="verifyEmailBtn" class="btn"><i class="fas fa-envelope"></i> Verify Email</button>' : ''}
         <p><i class="fas fa-check-circle"></i> <strong>Phone Verified:</strong> ${user.phone_verified ? 'Yes' : 'No'}</p>
         <p><i class="fas fa-user"></i> <strong>Account Status:</strong> ${user.is_active ? 'Active' : 'Inactive'}</p>
     `;
+
+    // Add event listener for verify email button if it exists
+    const verifyEmailBtn = document.getElementById('verifyEmailBtn');
+    if (verifyEmailBtn) {
+        verifyEmailBtn.addEventListener('click', verifyEmail);
+    }
+}
+
+// Add email verification function
+async function verifyEmail() {
+    const token = localStorage.getItem('token');
+    if (!token) {
+        alert('Please login again');
+        window.location.href = 'login.html';
+        return;
+    }
+
+    try {
+        // Get user email first
+        const userResponse = await fetch(`${API_BASE_URL}/users/me`, {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!userResponse.ok) {
+            throw new Error('Failed to get user email');
+        }
+        
+        const userData = await userResponse.json();
+        
+        // Request OTP with email
+        const response = await fetch(`${API_BASE_URL}/auth/request-otp`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                email: userData.email
+            })
+        });
+
+        if (response.ok) {
+            // Show OTP input dialog
+            const otp = prompt('Please enter the OTP sent to your email:');
+            if (otp) {
+                // Verify OTP with email
+                const verifyResponse = await fetch(`${API_BASE_URL}/auth/verify-otp`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        email: userData.email,
+                        otp: otp
+                    })
+                });
+
+                if (verifyResponse.ok) {
+                    alert('Email verified successfully!');
+                    // Refresh user info to update verification status
+                    fetchUserInfo();
+                } else {
+                    const errorData = await verifyResponse.json();
+                    alert(errorData.detail || 'Invalid OTP');
+                }
+            }
+        } else {
+            const errorData = await response.json();
+            alert(errorData.detail || 'Failed to send verification email');
+        }
+    } catch (error) {
+        console.error('Error during email verification:', error);
+        alert('An error occurred during email verification');
+    }
 }
 
 // Add this function to handle profile picture changes
